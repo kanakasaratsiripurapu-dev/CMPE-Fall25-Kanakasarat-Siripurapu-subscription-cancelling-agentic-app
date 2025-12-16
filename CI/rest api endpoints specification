@@ -1,0 +1,471 @@
+# SubScout REST API Specification
+
+Base URL: `https://api.subscout.app/v1`
+
+All endpoints require authentication via JWT token in `Authorization: Bearer <token>` header (except auth endpoints).
+
+---
+
+## Authentication Endpoints
+
+### `GET /auth/google`
+**Purpose**: Initiate OAuth flow with Google  
+**Auth Required**: No  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "auth_url": "https://accounts.google.com/o/oauth2/v2/auth?client_id=...",
+  "state": "random_csrf_token"
+}
+```
+
+### `GET /auth/google/callback`
+**Purpose**: Handle OAuth callback from Google  
+**Auth Required**: No  
+**Query Params**: `code`, `state`  
+**Response**:
+```json
+{
+  "access_token": "jwt_token_here",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "full_name": "John Doe"
+  }
+}
+```
+
+### `POST /auth/logout`
+**Purpose**: End user session  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**: `204 No Content`
+
+### `GET /auth/me`
+**Purpose**: Get current user info  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "full_name": "John Doe",
+  "last_scan_at": "2025-12-15T10:30:00Z",
+  "subscription_count": 23,
+  "total_monthly_spend": 287.43
+}
+```
+
+---
+
+## Email Scanning Endpoints
+
+### `POST /api/scan/start`
+**Purpose**: Trigger new Gmail inbox scan  
+**Auth Required**: Yes  
+**Request Body**:
+```json
+{
+  "date_range_years": 3,
+  "force_rescan": false
+}
+```
+**Response**:
+```json
+{
+  "session_id": "uuid",
+  "status": "running",
+  "estimated_emails": 8000,
+  "started_at": "2025-12-15T10:30:00Z"
+}
+```
+
+### `GET /api/scan/status/{session_id}`
+**Purpose**: Get real-time scan progress  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "session_id": "uuid",
+  "status": "running",
+  "total_emails_found": 8234,
+  "emails_processed": 2500,
+  "subscriptions_found": 18,
+  "progress_percent": 30.4,
+  "estimated_time_remaining_seconds": 180
+}
+```
+
+### `GET /api/scan/history`
+**Purpose**: List past scan sessions  
+**Auth Required**: Yes  
+**Query Params**: `limit` (default 10), `offset` (default 0)  
+**Response**:
+```json
+{
+  "sessions": [
+    {
+      "id": "uuid",
+      "status": "completed",
+      "total_emails_found": 8234,
+      "subscriptions_found": 23,
+      "started_at": "2025-12-15T10:30:00Z",
+      "completed_at": "2025-12-15T10:35:00Z"
+    }
+  ],
+  "total": 5
+}
+```
+
+---
+
+## Subscription Management Endpoints
+
+### `GET /api/subscriptions`
+**Purpose**: List all subscriptions for current user  
+**Auth Required**: Yes  
+**Query Params**:
+- `status` (optional): `active`, `cancelled`, `all`
+- `category` (optional): `streaming`, `saas`, `news`, etc.
+- `price_min` (optional): float
+- `price_max` (optional): float
+- `search` (optional): text search on service name
+- `sort_by` (optional): `price_desc`, `price_asc`, `renewal_date`, `name`
+- `limit` (default 50), `offset` (default 0)
+
+**Response**:
+```json
+{
+  "subscriptions": [
+    {
+      "id": "uuid",
+      "service_name": "Netflix",
+      "service_logo_url": "https://cdn.subscout.app/logos/netflix.png",
+      "price": 19.99,
+      "currency": "USD",
+      "billing_period": "monthly",
+      "next_renewal_date": "2026-01-15",
+      "status": "active",
+      "unsubscribe_link": "https://www.netflix.com/cancelplan",
+      "detection_confidence": 0.95,
+      "created_at": "2025-12-15T10:32:00Z"
+    }
+  ],
+  "total": 23,
+  "summary": {
+    "total_monthly_spend": 287.43,
+    "total_annual_spend": 3449.16,
+    "active_count": 23,
+    "cancelled_count": 5
+  }
+}
+```
+
+### `GET /api/subscriptions/{id}`
+**Purpose**: Get detailed subscription info  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "id": "uuid",
+  "service_name": "Netflix",
+  "service_domain": "netflix.com",
+  "service_category": "Streaming",
+  "price": 19.99,
+  "currency": "USD",
+  "billing_period": "monthly",
+  "first_detected_date": "2025-12-15",
+  "next_renewal_date": "2026-01-15",
+  "unsubscribe_link": "https://www.netflix.com/cancelplan",
+  "manage_account_link": "https://www.netflix.com/account",
+  "payment_method_last4": "4532",
+  "subscription_tier": "Premium",
+  "status": "active",
+  "source_email_ids": ["gmail_msg_123", "gmail_msg_456"],
+  "detection_confidence": 0.95,
+  "detected_by": "llm",
+  "events": [
+    {
+      "event_type": "detected",
+      "event_description": "Subscription detected from confirmation email",
+      "created_at": "2025-12-15T10:32:00Z"
+    }
+  ]
+}
+```
+
+### `POST /api/subscriptions/{id}/cancel`
+**Purpose**: Initiate subscription cancellation  
+**Auth Required**: Yes  
+**Request Body**:
+```json
+{
+  "reason": "No longer using",
+  "notify_me": true
+}
+```
+**Response**:
+```json
+{
+  "action_id": "uuid",
+  "status": "pending",
+  "message": "Cancellation initiated. We'll monitor your inbox for confirmation.",
+  "estimated_completion": "2025-12-22T10:35:00Z"
+}
+```
+
+### `GET /api/subscriptions/{id}/cancel/status`
+**Purpose**: Check cancellation status  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "action_id": "uuid",
+  "status": "confirmed",
+  "initiated_at": "2025-12-15T10:35:00Z",
+  "completed_at": "2025-12-15T11:20:00Z",
+  "confirmation_email_detected": true,
+  "timeline": [
+    {
+      "step": "Cancellation link visited",
+      "completed_at": "2025-12-15T10:35:12Z",
+      "status": "success"
+    },
+    {
+      "step": "Confirmation email received",
+      "completed_at": "2025-12-15T11:20:00Z",
+      "status": "success"
+    }
+  ]
+}
+```
+
+### `PATCH /api/subscriptions/{id}`
+**Purpose**: Manually update subscription details  
+**Auth Required**: Yes  
+**Request Body**:
+```json
+{
+  "price": 22.99,
+  "next_renewal_date": "2026-02-15",
+  "status": "active"
+}
+```
+**Response**: Updated subscription object
+
+### `DELETE /api/subscriptions/{id}`
+**Purpose**: Remove subscription from list (soft delete)  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**: `204 No Content`
+
+---
+
+## Dashboard & Analytics Endpoints
+
+### `GET /api/dashboard/summary`
+**Purpose**: Get high-level dashboard stats  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "total_subscriptions": 23,
+  "active_subscriptions": 23,
+  "cancelled_subscriptions": 5,
+  "monthly_spend": 287.43,
+  "annual_spend": 3449.16,
+  "highest_subscription": {
+    "service_name": "Adobe Creative Cloud",
+    "price": 54.99,
+    "billing_period": "monthly"
+  },
+  "upcoming_renewals": [
+    {
+      "service_name": "Netflix",
+      "next_renewal_date": "2025-12-22",
+      "price": 19.99
+    }
+  ],
+  "spending_trend": [
+    {"month": "2025-01", "amount": 245.32},
+    {"month": "2025-02", "amount": 267.18}
+  ]
+}
+```
+
+### `GET /api/dashboard/categories`
+**Purpose**: Spending breakdown by category  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "categories": [
+    {
+      "name": "Streaming",
+      "count": 5,
+      "monthly_spend": 67.95,
+      "percentage": 23.6
+    },
+    {
+      "name": "SaaS",
+      "count": 12,
+      "monthly_spend": 189.48,
+      "percentage": 65.9
+    }
+  ]
+}
+```
+
+---
+
+## Activity Log Endpoints
+
+### `GET /api/activity`
+**Purpose**: Get user activity log  
+**Auth Required**: Yes  
+**Query Params**: `limit` (default 50), `offset` (default 0), `type` (optional filter)  
+**Response**:
+```json
+{
+  "activities": [
+    {
+      "id": "uuid",
+      "activity_type": "cancellation_confirmed",
+      "activity_description": "Netflix subscription cancelled successfully",
+      "created_at": "2025-12-15T11:20:00Z",
+      "related_subscription_id": "uuid"
+    }
+  ],
+  "total": 145
+}
+```
+
+### `GET /api/activity/export`
+**Purpose**: Export activity log as CSV  
+**Auth Required**: Yes  
+**Query Params**: `format` (csv, json)  
+**Response**: File download (CSV or JSON)
+
+---
+
+## User Settings Endpoints
+
+### `GET /api/settings`
+**Purpose**: Get user preferences  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "notifications": {
+    "renewal_reminders": true,
+    "reminder_days_before": 7,
+    "cancellation_confirmations": true
+  },
+  "privacy": {
+    "data_retention_days": 90
+  }
+}
+```
+
+### `PATCH /api/settings`
+**Purpose**: Update user preferences  
+**Auth Required**: Yes  
+**Request Body**: Same structure as GET response  
+**Response**: Updated settings object
+
+### `DELETE /api/account`
+**Purpose**: Delete user account (soft delete)  
+**Auth Required**: Yes  
+**Request Body**:
+```json
+{
+  "confirmation": "DELETE_MY_ACCOUNT"
+}
+```
+**Response**: `204 No Content`
+
+### `GET /api/account/export`
+**Purpose**: Export all user data (GDPR compliance)  
+**Auth Required**: Yes  
+**Request Body**: None  
+**Response**: JSON file with all user data
+
+---
+
+## Webhook Endpoints (for future integrations)
+
+### `POST /webhooks/gmail`
+**Purpose**: Receive Gmail push notifications  
+**Auth Required**: No (validated via Google signature)  
+**Request Body**: Gmail push notification payload  
+**Response**: `200 OK`
+
+---
+
+## Health & Status Endpoints
+
+### `GET /health`
+**Purpose**: Health check for monitoring  
+**Auth Required**: No  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-12-15T10:30:00Z",
+  "services": {
+    "database": "up",
+    "redis": "up",
+    "gmail_api": "up"
+  }
+}
+```
+
+### `GET /status`
+**Purpose**: System status page  
+**Auth Required**: No  
+**Request Body**: None  
+**Response**:
+```json
+{
+  "version": "1.0.0",
+  "uptime_seconds": 86400,
+  "active_users": 1247,
+  "total_subscriptions_tracked": 28432
+}
+```
+
+---
+
+## Error Response Format
+
+All errors return standard format:
+```json
+{
+  "error": {
+    "code": "SUBSCRIPTION_NOT_FOUND",
+    "message": "Subscription with ID xyz not found",
+    "details": {},
+    "timestamp": "2025-12-15T10:30:00Z"
+  }
+}
+```
+
+Common HTTP status codes:
+- `200 OK`: Success
+- `201 Created`: Resource created
+- `204 No Content`: Success with no response body
+- `400 Bad Request`: Invalid input
+- `401 Unauthorized`: Missing or invalid auth token
+- `403 Forbidden`: Valid auth but insufficient permissions
+- `404 Not Found`: Resource doesn't exist
+- `429 Too Many Requests`: Rate limit exceeded
+- `500 Internal Server Error`: Server error
